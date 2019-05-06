@@ -1,27 +1,36 @@
-# -*- coding: utf-8 -*-
+# /usr/bin/env python
 """
-TODO: Insert docstring here
+An animated telnet splash screen for mozz.us.
+
+When a connection is established with the server, an ASCII "wave" animation
+is displayed on the screen. After a short period of the time, the connection
+is automatically closed. The text rendering relies on some basic VT-100 ANSI
+commands for text coloring and cursor movement.
+
+The telnet server uses asyncio and requires python 3.5+.
 """
 
-import time
 import logging
-from copy import copy
-from miniboa import TelnetServer, telnet
-# https://github.com/jquast/telnetlib3
+import asyncio
+from telnetlib3 import telopt, create_server
 
-IDLE_TIMEOUT = 30
-CLIENT_LIST = []
+__author__ = 'Michael Lazar'
+__license__ = 'GNU GPL v3'
+__copyright__ = '(c) 2019 Michael Lazar'
+__version__ = '1.0.0'
 
+PORT = '7777'
+HOST = '127.0.0.1'
 
-# ANSI Color Codes
-WATER = '\x1b[46m\x1b[1;37m'
-BOLD = '\x1b[1m'
-MAGENTA = '\x1b[1;35m'
-YELLOW = '\x1b[1;33m'
-GREEN = '\x1b[22;32m'
-RED = '\x1b[1;31m'
+# VT-100 terminal commands
 END = '\x1b[0m'
-
+BOLD = '\x1b[1m'
+RED = '\x1b[1;31m'
+GREEN = '\x1b[22;32m'
+YELLOW = '\x1b[1;33m'
+MAGENTA = '\x1b[1;35m'
+WATER = '\x1b[46m\x1b[1;37m'  # white w/ cyan background
+MOVE = '\x1b[{};{}H'  # move cursor to (row, col) coordinates
 
 WAVE = [
     "'^^'-.__.-" * 20,
@@ -36,7 +45,6 @@ WAVE = [
     "-'^^'-.__." * 20,
 ]
 
-
 BANNER = [
     '                 ',
     '  M O Z Z . U S  ',
@@ -44,121 +52,119 @@ BANNER = [
     '  Ride the Wave  ',
     '                 ',
 ]
-BANNER_ROWS = len(BANNER)
-BANNER_COLS = max(len(row) for row in BANNER)
 
 
-def build_banner(offset=0):
+def get_terminal_size(writer):
     """
-    Add custom ANSI styling to the banner text.
+    Grab the most recent terminal size reported by the client via telnet NAWS.
 
-    Cycle through colors for the subtitle text, using a slower rate than the
-    primary animation.
+
     """
+    rows = writer.get_extra_info('rows', 24)
+    cols = writer.get_extra_info('cols', 80)
+    return rows, cols
+
+
+async def negotiate_telnet_options(writer):
+    """
+    Negotiate the telnet connection options with the client.
+    """
+    # Ask the client to report their window size in rows x cols
+    writer.iac(telopt.DO, telopt.NAWS)
+
+    # Suppress go-ahead signals for efficiency
+    writer.iac(telopt.DO, telopt.SGA)
+    writer.iac(telopt.WONT, telopt.SGA)
+
+    # Give the client a bit of time to respond to the commands before starting
+    await asyncio.sleep(0.5)
+
+
+def render_background(rows, cols, offset):
+    """
+    Fill the entire terminal with the wave pattern.
+
+    Used on startup and when a terminal size change is detected.
+    """
+    lines = []
+    for i in range(rows):
+        row_offset = (offset - rows + i + 1) % len(WAVE)
+        lines.append(render_wave(cols, row_offset))
+    return '\r\n'.join(lines)
+
+
+def render_wave(cols, offset):
+    """
+    Draw a single row of the wave animation.
+    """
+    return WATER + WAVE[offset][:cols] + END
+
+
+def render_banner(rows, cols, offset):
+    """
+    Overlay the banner text on top of the wave animation.
+
+    This is done utilizing the VT-100 move cursor command to avoid needing
+    to redraw the entire screen.
+    """
+    if rows < len(BANNER) + 2 or cols < len(BANNER[0]) + 2:
+        # The screen is too small to render the banner
+        return ''
+
     color = [MAGENTA, GREEN, RED, YELLOW][(offset // 7) % 4]
 
-    banner = copy(BANNER)
-    banner[0] = END + banner[0] + WATER
-    banner[1] = END + BOLD + banner[1] + END + WATER
-    banner[2] = END + banner[2] + WATER
-    banner[3] = END + color + banner[3] + END + WATER
-    banner[4] = END + banner[4] + WATER
-    return banner
+    row = (rows - len(BANNER)) // 2
+    col = (cols - len(BANNER[0])) // 2
+
+    text = [
+
+        MOVE.format(row, col) + BANNER[0],
+        MOVE.format(row + 1, col) + BOLD + BANNER[1] + END,
+        MOVE.format(row + 2, col) + BANNER[2],
+        MOVE.format(row + 3, col) + color + BANNER[3] + END,
+        MOVE.format(row + 4, col) + BANNER[4],
+        MOVE.format(rows, 0),  # Reset cursor at the bottom of the screen
+    ]
+    return ''.join(text)
 
 
-def build_frame(rows, cols, offset=0):
+async def shell(reader, writer):
+
+    await negotiate_telnet_options(writer)
+
+    rows, cols = None, None
+    for i in range(1):
+        new_rows, new_cols = get_terminal_size(writer)
+
+        # Draw the background
+        offset = i % len(WAVE)
+        if (new_rows, new_cols) == (rows, cols):
+            writer.write('\r\n' + render_wave(cols, offset))
+        else:
+            rows, cols = new_rows, new_cols
+            writer.write('\r\n' + render_background(rows, cols, offset))
+
+        # Overlay the banner
+        writer.write(render_banner(rows, cols, i))
+
+        await writer.drain()
+        await asyncio.sleep(0.1)
+
+    writer.close()
+
+
+def main():
     """
-    Construct the screen, given the dimensions of the terminal.
+    Main server loop.
     """
+    logging.basicConfig(level=logging.DEBUG)
+    logging.info("Listening for connections on {}:{}.".format(HOST, PORT))
 
-    rows = max(rows, BANNER_ROWS)
-    cols = max(cols, BANNER_COLS)
-    lines = []
-
-    # Add the background
-    for i in range(rows):
-        row_offset = (i + offset) % len(WAVE)
-        lines.append(WAVE[row_offset][:cols])
-
-    # Overlay the banner
-    banner = build_banner(offset=offset)
-    banner_start_row = (rows - BANNER_ROWS) // 2
-    banner_start_col = (cols - BANNER_COLS) // 2
-    for i, text in enumerate(banner, start=banner_start_row):
-        start, end = banner_start_col, banner_start_col + BANNER_COLS
-        lines[i] = lines[i][:start] + text + lines[i][end:]
-
-    screen = '\n'.join(lines)
-    screen = WATER + screen + END
-    return screen
-
-
-def on_connect(client):
-    """
-    Sample on_connect function.
-    Handles new connections.
-    """
-    logging.info("Opened connection to {}".format(client.addrport()))
-
-    client.request_naws()
-    client.request_do_sga()
-    client.request_will_echo()
-    client.send('{}{}{}'.format(telnet.IAC, telnet.DO, telnet.LINEMO))
-
-    client.offset = 0
-    CLIENT_LIST.append(client)
-
-
-def on_disconnect(client):
-    """
-    Sample on_disconnect function.
-    Handles lost connections.
-    """
-    logging.info("Lost connection to {}".format(client.addrport()))
-    CLIENT_LIST.remove(client)
-
-
-def kick_idle():
-    """
-    Looks for idle clients and disconnects them by setting active to False.
-    """
-    for client in CLIENT_LIST:
-        if client.idle() > IDLE_TIMEOUT:
-            logging.info("Kicking idle lobby client from {}".format(
-                client.addrport()))
-            client.active = False
-
-
-def draw():
-    for client in CLIENT_LIST:
-        client.send_cc('^s')
-        client.offset += 1
-        screen = build_frame(client.rows, client.columns, client.offset)
-        client.send(screen)
+    loop = asyncio.get_event_loop()
+    coro = create_server(host=HOST, port=PORT, shell=shell)
+    server = loop.run_until_complete(coro)
+    loop.run_until_complete(server.wait_closed())
 
 
 if __name__ == '__main__':
-
-    # Simple chat server to demonstrate connection handling via the
-    # async and telnet modules.
-    logging.basicConfig(level=logging.DEBUG)
-
-    # Create a telnet server with a port, address,
-    # a function to call with new connections
-    # and one to call with lost connections.
-    telnet_server = TelnetServer(
-        port=7777,
-        address='127.0.0.1',
-        on_connect=on_connect,
-        on_disconnect=on_disconnect,
-        timeout=.05)
-
-    logging.info("Listening for connections on port {}. "
-                 "CTRL-C to break.".format(telnet_server.port))
-
-    # Server Loop
-    while True:
-        telnet_server.poll()
-        kick_idle()
-        time.sleep(0.2)
-        draw()
+    main()

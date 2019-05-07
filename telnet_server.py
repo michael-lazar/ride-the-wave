@@ -4,33 +4,39 @@ An animated telnet splash screen for mozz.us.
 
 When a connection is established with the server, an ASCII "wave" animation
 is displayed on the screen. After a short period of the time, the connection
-is automatically closed. The text rendering relies on some basic VT-100 ANSI
-commands for text coloring and cursor movement.
+is automatically closed. The text rendering relies on some universal VT-100
+ANSI commands for text coloring.
 
-The telnet server uses asyncio and requires python 3.5+.
+The telnet server uses asyncio and requires python 3.6+.
+
+ASCII art credited to Joan Stark:
+https://web.archive.org/web/20091028022938/http://www.geocities.com/SoHo/7373/scroll.htm
 """
-
-import logging
-import asyncio
-from telnetlib3 import telopt, create_server
 
 __author__ = 'Michael Lazar'
 __license__ = 'GNU GPL v3'
 __copyright__ = '(c) 2019 Michael Lazar'
 __version__ = '1.0.0'
 
-PORT = '7777'
-HOST = '127.0.0.1'
+import logging
+import asyncio
+import argparse
+from functools import lru_cache
+from telnetlib3 import telopt, create_server
 
 # VT-100 terminal commands
 END = '\x1b[0m'
+CLEAR = '\x1b[2J'
 BOLD = '\x1b[1m'
 RED = '\x1b[1;31m'
 GREEN = '\x1b[22;32m'
 YELLOW = '\x1b[1;33m'
 MAGENTA = '\x1b[1;35m'
+HIDE_CURSOR = '\x1b[25l'
 WATER = '\x1b[46m\x1b[1;37m'  # white w/ cyan background
-MOVE = '\x1b[{};{}H'  # move cursor to (row, col) coordinates
+
+FPS = 5
+DURATION = 10
 
 WAVE = [
     "'^^'-.__.-" * 20,
@@ -47,18 +53,30 @@ WAVE = [
 
 BANNER = [
     '                 ',
-    '  M O Z Z . U S  ',
+    BOLD + '  M O Z Z . U S  ' + END,
     '  -------------  ',
-    '  Ride the Wave  ',
+    '^color' + '  Ride the Wave  ' + END,
     '                 ',
 ]
+BANNER_ROWS = len(BANNER)
+BANNER_COLS = len(BANNER[0])
+
+
+def parse_args():
+    """
+    Parse command line arguments.
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--host', default='127.0.0.1')
+    parser.add_argument('--port', default=7777, type=int)
+    parser.add_argument('--fps', default=FPS, type=float)
+    parser.add_argument('--duration', default=DURATION, type=float)
+    return parser.parse_args()
 
 
 def get_terminal_size(writer):
     """
     Grab the most recent terminal size reported by the client via telnet NAWS.
-
-
     """
     rows = writer.get_extra_info('rows', 24)
     cols = writer.get_extra_info('cols', 80)
@@ -69,99 +87,103 @@ async def negotiate_telnet_options(writer):
     """
     Negotiate the telnet connection options with the client.
     """
-    # Ask the client to report their window size in rows x cols
     writer.iac(telopt.DO, telopt.NAWS)
-
-    # Suppress go-ahead signals for efficiency
     writer.iac(telopt.DO, telopt.SGA)
-    writer.iac(telopt.WONT, telopt.SGA)
+    writer.iac(telopt.WILL, telopt.SGA)
+    writer.iac(telopt.WILL, telopt.ECHO)
+    writer.iac(telopt.WONT, telopt.LINEMODE)
 
-    # Give the client a bit of time to respond to the commands before starting
+    # Give the client a bit of time to respond to the commands before starting.
+    # This prevents needing to resize the animation 1-2 frames when the NAWS
+    # response finally comes back.
     await asyncio.sleep(0.5)
 
 
-def render_background(rows, cols, offset):
+@lru_cache(maxsize=200)
+def render_screen(rows, cols, offset):
     """
-    Fill the entire terminal with the wave pattern.
+    Render a frame of the animation screen.
 
-    Used on startup and when a terminal size change is detected.
+    This method is cached because if the client doesn't resize their window,
+    the animation will be repeated every len(WAVE) frames.
     """
-    lines = []
-    for i in range(rows):
-        row_offset = (offset - rows + i + 1) % len(WAVE)
-        lines.append(render_wave(cols, row_offset))
-    return '\r\n'.join(lines)
+    # Fill in the background with the wave pattern
+    lines = [WAVE[(i + offset) % len(WAVE)][:cols] for i in range(rows)]
+
+    # Overlay the banner on top of the background
+    overlay_banner(rows, cols, lines)
+
+    # Add the footer - author's sig and instructions
+    if len(lines[-1]) > 9:
+        lines[-1] = 'jgs' + lines[-1][3:-6] + '[q]uit'
+
+    return CLEAR + WATER + '\r\n'.join(lines) + END
 
 
-def render_wave(cols, offset):
+def overlay_banner(rows, cols, lines):
     """
-    Draw a single row of the wave animation.
+    Overlay the banner text on top of the background pattern.
     """
-    return WATER + WAVE[offset][:cols] + END
+    if rows < BANNER_ROWS or cols < BANNER_COLS:
+        return lines
 
-
-def render_banner(rows, cols, offset):
-    """
-    Overlay the banner text on top of the wave animation.
-
-    This is done utilizing the VT-100 move cursor command to avoid needing
-    to redraw the entire screen.
-    """
-    if rows < len(BANNER) + 2 or cols < len(BANNER[0]) + 2:
-        # The screen is too small to render the banner
-        return ''
-
-    color = [MAGENTA, GREEN, RED, YELLOW][(offset // 7) % 4]
-
-    row = (rows - len(BANNER)) // 2
-    col = (cols - len(BANNER[0])) // 2
-
-    text = [
-
-        MOVE.format(row, col) + BANNER[0],
-        MOVE.format(row + 1, col) + BOLD + BANNER[1] + END,
-        MOVE.format(row + 2, col) + BANNER[2],
-        MOVE.format(row + 3, col) + color + BANNER[3] + END,
-        MOVE.format(row + 4, col) + BANNER[4],
-        MOVE.format(rows, 0),  # Reset cursor at the bottom of the screen
-    ]
-    return ''.join(text)
+    start_row = (rows - BANNER_ROWS) // 2
+    start = (cols - BANNER_COLS) // 2
+    end = start + BANNER_COLS
+    for i, line in enumerate(BANNER):
+        row = start_row + i
+        lines[row] = lines[row][:start] + END + line + WATER + lines[row][end:]
 
 
 async def shell(reader, writer):
-
+    """
+    A coroutine that's invoked after a new connection has been established.
+    """
     await negotiate_telnet_options(writer)
 
-    rows, cols = None, None
-    for i in range(1):
-        new_rows, new_cols = get_terminal_size(writer)
+    for frame in range(int(DURATION * FPS)):
+        rows, cols = get_terminal_size(writer)
 
-        # Draw the background
-        offset = i % len(WAVE)
-        if (new_rows, new_cols) == (rows, cols):
-            writer.write('\r\n' + render_wave(cols, offset))
-        else:
-            rows, cols = new_rows, new_cols
-            writer.write('\r\n' + render_background(rows, cols, offset))
+        offset = frame % len(WAVE)
+        text = render_screen(rows, cols, offset)
 
-        # Overlay the banner
-        writer.write(render_banner(rows, cols, i))
+        # The color cycles once every 7 frames. Add this after render_screen()
+        # so we can cache everything else on the screen.
+        subtitle_color = [MAGENTA, GREEN, RED, YELLOW][(frame // 7) % 4]
+        text = text.replace('^color', subtitle_color, 1)
 
+        writer.write(text)
         await writer.drain()
-        await asyncio.sleep(0.1)
+
+        try:
+            char = await asyncio.wait_for(reader.read(1), timeout=1/FPS)
+            if char == 'q':
+                break
+        except asyncio.TimeoutError:
+            pass
 
     writer.close()
 
 
 def main():
     """
-    Main server loop.
+    Main entry point.
     """
+    args = parse_args()
+
     logging.basicConfig(level=logging.DEBUG)
-    logging.info("Listening for connections on {}:{}.".format(HOST, PORT))
+    logging.info(f'Listening on {args.host}:{args.port}.')
+
+    global FPS
+    FPS = args.fps
+    logging.info(f'Animation speed {FPS} fps')
+
+    global DURATION
+    DURATION = args.duration
+    logging.info(f'Duration {DURATION} seconds')
 
     loop = asyncio.get_event_loop()
-    coro = create_server(host=HOST, port=PORT, shell=shell)
+    coro = create_server(host=args.host, port=args.port, shell=shell)
     server = loop.run_until_complete(coro)
     loop.run_until_complete(server.wait_closed())
 

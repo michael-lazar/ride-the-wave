@@ -6,4 +6,4 @@
 <img alt="demo" src="demo.png"/>
 </p>
 
-<p align="center">See it live at <strong><a href=telnet://mozz.us:73>telnet://mozz.us:73</a></strong></p>
+See it live at ``$ telnet mozz.us 73``.

@@ -7,7 +7,7 @@ Description=Ride the Wave
 Type=simple
 Restart=always
 RestartSec=5
-ExecStart=/var/gopher/ride-the-wave/telnet_server.py --host 0.0.0.0 --port 23
+ExecStart=/usr/bin/python3.6 /var/gopher/ride-the-wave/telnet_server.py --host 0.0.0.0 --port 23
 
 [Install]
 WantedBy=default.target

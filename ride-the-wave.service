@@ -1,0 +1,13 @@
+# /etc/systemd/system/ride-the-wave.service
+
+[Unit]
+Description=Ride the Wave
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+ExecStart=/var/gopher/ride-the-wave/telnet_server.py --host 0.0.0.0 --port 23
+
+[Install]
+WantedBy=default.target

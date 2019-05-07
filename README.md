@@ -1,7 +1,9 @@
-# Ride the Wave
+<h1 align="center">Ride the Wave</h1>
 
-An animated splash screen for mozz.us
+<p align="center">An animated splash screen using telnet</p>
 
-Live at *[telnet://mozz.us:73](telnet://mozz.us:73)*
+<p align="center">
+<img alt="title image" src="resources/title_image.png"/>
+</p>
 
-<img alt="demo" src="demo.png"/>
+<p align="center">See it live at <a href=telnet://mozz.us:73>telnet://mozz.us:73</a></p>

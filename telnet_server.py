@@ -117,7 +117,7 @@ def render_screen(rows, cols, offset):
     if len(lines[-1]) > 9:
         lines[-1] = 'jgs' + lines[-1][3:-6] + '[q]uit'
 
-    return CLEAR + WATER + '\r\n'.join(lines) + END
+    return WATER + '\r\n'.join(lines) + END
 
 
 def overlay_banner(rows, cols, lines):

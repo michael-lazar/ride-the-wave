@@ -172,7 +172,7 @@ def main():
     """
     args = parse_args()
 
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
     logging.info(f'Listening on {args.host}:{args.port}.')
 
     global FPS

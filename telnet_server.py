@@ -35,7 +35,7 @@ MAGENTA = '\x1b[1;35m'
 HIDE_CURSOR = '\x1b[25l'
 WATER = '\x1b[46m\x1b[1;37m'  # white w/ cyan background
 
-FPS = 5
+FPS = 10
 DURATION = 10
 
 WAVE = [

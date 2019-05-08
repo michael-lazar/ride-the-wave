@@ -34,6 +34,7 @@ YELLOW = '\x1b[1;33m'
 MAGENTA = '\x1b[1;35m'
 HIDE_CURSOR = '\x1b[25l'
 WATER = '\x1b[46m\x1b[1;37m'  # white w/ cyan background
+RESET = '\x1b[0;0H'  # move cursor to (0, 0) coordinates
 
 FPS = 10
 DURATION = 10
@@ -117,7 +118,7 @@ def render_screen(rows, cols, offset):
     if len(lines[-1]) > 9:
         lines[-1] = 'jgs' + lines[-1][3:-6] + '[q]uit'
 
-    return WATER + '\r\n'.join(lines) + END
+    return RESET + WATER + '\r\n'.join(lines) + END
 
 
 def overlay_banner(rows, cols, lines):

@@ -1,4 +1,4 @@
-# /usr/bin/env python
+# /usr/bin/env python3
 """
 An animated telnet splash screen for mozz.us.
 
@@ -13,28 +13,29 @@ ASCII art credited to Joan Stark:
 https://web.archive.org/web/20091028022938/http://www.geocities.com/SoHo/7373/scroll.htm
 """
 
-__author__ = 'Michael Lazar'
-__license__ = 'GNU GPL v3'
-__copyright__ = '(c) 2019 Michael Lazar'
-__version__ = '1.0.0'
+__author__ = "Michael Lazar"
+__license__ = "GNU GPL v3"
+__copyright__ = "Michael Lazar"
+__version__ = "1.0.0"
 
-import logging
-import asyncio
 import argparse
+import asyncio
+import logging
 from functools import lru_cache
-from telnetlib3 import telopt, create_server
+
+from telnetlib3 import create_server, telopt
 
 # VT-100 terminal commands
-END = '\x1b[0m'
-CLEAR = '\x1b[2J'
-BOLD = '\x1b[1m'
-RED = '\x1b[1;31m'
-GREEN = '\x1b[22;32m'
-YELLOW = '\x1b[1;33m'
-MAGENTA = '\x1b[1;35m'
-HIDE_CURSOR = '\x1b[25l'
-WATER = '\x1b[46m\x1b[1;37m'  # white w/ cyan background
-RESET = '\x1b[0;0H'  # move cursor to (0, 0) coordinates
+END = "\x1b[0m"
+CLEAR = "\x1b[2J"
+BOLD = "\x1b[1m"
+RED = "\x1b[1;31m"
+GREEN = "\x1b[22;32m"
+YELLOW = "\x1b[1;33m"
+MAGENTA = "\x1b[1;35m"
+HIDE_CURSOR = "\x1b[25l"
+WATER = "\x1b[46m\x1b[1;37m"  # white w/ cyan background
+RESET = "\x1b[0;0H"  # move cursor to (0, 0) coordinates
 
 FPS = 10
 DURATION = 10
@@ -53,11 +54,11 @@ WAVE = [
 ]
 
 BANNER = [
-    '                 ',
-    BOLD + '  M O Z Z . U S  ' + END,
-    '  -------------  ',
-    '^color' + '  Ride the Wave  ' + END,
-    '                 ',
+    "                 ",
+    BOLD + "  M O Z Z . U S  " + END,
+    "  -------------  ",
+    "^color" + "  Ride the Wave  " + END,
+    "                 ",
 ]
 BANNER_ROWS = len(BANNER)
 BANNER_COLS = len(BANNER[0])
@@ -68,10 +69,10 @@ def parse_args():
     Parse command line arguments.
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument('--host', default='127.0.0.1')
-    parser.add_argument('--port', default=7777, type=int)
-    parser.add_argument('--fps', default=FPS, type=float)
-    parser.add_argument('--duration', default=DURATION, type=float)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", default=7777, type=int)
+    parser.add_argument("--fps", default=FPS, type=float)
+    parser.add_argument("--duration", default=DURATION, type=float)
     return parser.parse_args()
 
 
@@ -79,8 +80,8 @@ def get_terminal_size(writer):
     """
     Grab the most recent terminal size reported by the client via telnet NAWS.
     """
-    rows = writer.get_extra_info('rows', 24)
-    cols = writer.get_extra_info('cols', 80)
+    rows = writer.get_extra_info("rows", 24)
+    cols = writer.get_extra_info("cols", 80)
     return rows, cols
 
 
@@ -116,9 +117,9 @@ def render_screen(rows, cols, offset):
 
     # Add the footer - author's sig and instructions
     if len(lines[-1]) > 9:
-        lines[-1] = 'jgs' + lines[-1][3:-6] + '[q]uit'
+        lines[-1] = "jgs" + lines[-1][3:-6] + "[q]uit"
 
-    return RESET + WATER + '\r\n'.join(lines) + END
+    return RESET + WATER + "\r\n".join(lines) + END
 
 
 def overlay_banner(rows, cols, lines):
@@ -151,14 +152,14 @@ async def shell(reader, writer):
         # The color cycles once every 7 frames. Add this after render_screen()
         # so we can cache everything else on the screen.
         subtitle_color = [MAGENTA, GREEN, RED, YELLOW][(frame // 7) % 4]
-        text = text.replace('^color', subtitle_color, 1)
+        text = text.replace("^color", subtitle_color, 1)
 
         writer.write(text)
         await writer.drain()
 
         try:
-            char = await asyncio.wait_for(reader.read(1), timeout=1/FPS)
-            if char == 'q':
+            char = await asyncio.wait_for(reader.read(1), timeout=1 / FPS)
+            if char == "q":
                 break
         except asyncio.TimeoutError:
             pass
@@ -173,15 +174,15 @@ def main():
     args = parse_args()
 
     logging.basicConfig(level=logging.INFO)
-    logging.info(f'Listening on {args.host}:{args.port}.')
+    logging.info(f"Listening on {args.host}:{args.port}.")
 
     global FPS
     FPS = args.fps
-    logging.info(f'Animation speed {FPS} fps')
+    logging.info(f"Animation speed {FPS} fps")
 
     global DURATION
     DURATION = args.duration
-    logging.info(f'Duration {DURATION} seconds')
+    logging.info(f"Duration {DURATION} seconds")
 
     loop = asyncio.get_event_loop()
     coro = create_server(host=args.host, port=args.port, shell=shell)
@@ -189,5 +190,5 @@ def main():
     loop.run_until_complete(server.wait_closed())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

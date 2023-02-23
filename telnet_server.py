@@ -184,8 +184,18 @@ def main():
     DURATION = args.duration
     logging.info(f"Duration {DURATION} seconds")
 
+    async def shell_wrapper(*arguments):
+        try:
+            await shell(*arguments)
+        except ConnectionError:
+            # This can at any point in the coroutine if the client kills the
+            # connection. If we don't handle it, the coroutine will never
+            # finish and asyncio will complain about the task being destroyed
+            # while still pending.
+            pass
+
     loop = asyncio.get_event_loop()
-    coro = create_server(host=args.host, port=args.port, shell=shell)
+    coro = create_server(host=args.host, port=args.port, shell=shell_wrapper)
     server = loop.run_until_complete(coro)
     loop.run_until_complete(server.wait_closed())
 
